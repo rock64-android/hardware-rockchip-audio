@@ -110,6 +110,10 @@ int PCM_CARD_SPDIF = 2;
 #define HW_PARAMS_FLAG_LPCM 0
 #define HW_PARAMS_FLAG_NLPCM 1
 
+#define DEFAULT_MODE 0
+#define HDMI_BITSTREAM_MODE 6
+#define SPDIF_PASSTHROUGH_MODE 8
+
 #define HDMI_AUIOINFO_NODE      "/sys/class/display/HDMI/audioinfo"
 #define HDMI_CONNECTION_NODE    "/sys/class/display/HDMI/connect"
 #define SND_CARD0_NODE          "/proc/asound/card0/id"
@@ -118,6 +122,7 @@ int PCM_CARD_SPDIF = 2;
 #define MEDIA_SINK_AUDIO        "media.sink.audio"
 #define MEDIA_CFG_AUDIO_BYPASS  "media.cfg.audio.bypass"
 #define MEDIA_CFG_AUDIO_MUL     "media.cfg.audio.mul"
+#define MEDIA_AUDIO_DEVICE      "persist.audio.currentplayback"
 
 /* b, p, c, u, v, 0, 0, 0*/
 #define B_BIT_SHIFT    7

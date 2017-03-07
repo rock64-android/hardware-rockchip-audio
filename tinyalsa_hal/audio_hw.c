@@ -492,7 +492,8 @@ static int start_output_stream(struct stream_out *out)
     char value[PROPERTY_VALUE_MAX] = "";
     struct audio_device *adev = out->dev;
     int type;
-    bool connect_hdmi = false;
+    bool connect_hdmi = true;
+    int ret = 0;
 
     ALOGD("%s",__FUNCTION__);
     if (out == adev->outputs[OUTPUT_HDMI_MULTI]) {
@@ -508,6 +509,14 @@ static int start_output_stream(struct stream_out *out)
     if (strstr(value,"LPCM")) {
         connect_hdmi = true;
     }
+    property_get(MEDIA_AUDIO_DEVICE, value, "");
+    if (atoi(value) == SPDIF_PASSTHROUGH_MODE) {
+        out->device &= ~AUDIO_DEVICE_OUT_AUX_DIGITAL;
+	out->device |= AUDIO_DEVICE_OUT_SPDIF;
+    } else if (atoi(value) == HDMI_BITSTREAM_MODE) {
+        out->device &= ~AUDIO_DEVICE_OUT_SPDIF;
+	out->device |= AUDIO_DEVICE_OUT_AUX_DIGITAL;
+    }
 #ifdef BOX_HAL
     if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
         /*BOX hdmi & codec use the same i2s,so only config the codec card*/
@@ -521,8 +530,8 @@ static int start_output_stream(struct stream_out *out)
     }
 #endif
     out_dump(out, 0);
-    connect_hdmi = true;
 #endif
+    connect_hdmi = true;
     route_pcm_open(getRouteFromDevice(out->device));
 
     if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
@@ -1949,7 +1958,8 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     int ret;
     enum output_type type;
 
-    ALOGD("audio hal adev_open_output_stream devices = 0x%x, flags = %d",devices, flags);
+    ALOGD("audio hal adev_open_output_stream devices = 0x%x, flags = %d, samplerate = %d",
+		    devices, flags, config->sample_rate);
     out = (struct stream_out *)calloc(1, sizeof(struct stream_out));
     if (!out)
         return -ENOMEM;
@@ -1961,8 +1971,17 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->device = devices;
 
     char value[PROPERTY_VALUE_MAX] = "";
+    int device_mode = 0;
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
-        if (devices == AUDIO_DEVICE_OUT_AUX_DIGITAL){
+        property_get(MEDIA_AUDIO_DEVICE, value, "");
+        if (atoi(value) == 8) {
+            device_mode = SPDIF_PASSTHROUGH_MODE;
+        } else if (atoi(value) == 6) {
+            device_mode = HDMI_BITSTREAM_MODE;
+        } else {
+            device_mode = DEFAULT_MODE;
+        }
+        if ((devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) && (device_mode == HDMI_BITSTREAM_MODE)){
             property_get(MEDIA_CFG_AUDIO_BYPASS, value, "-1");
             if(memcmp(value, "true", 4) == 0){
                 out->channel_mask = config->channel_mask;
@@ -1973,6 +1992,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                     int channel = audio_channel_count_from_out_mask(config->channel_mask);
                     if (channel == 8) {
                         out->config = pcm_config_direct;
+			out->config.rate = config->sample_rate;
                     } else if (config->sample_rate >= 176400) {
                         out->config.period_size = 1024 * 4;
                     } else {
@@ -2002,7 +2022,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                 out->output_direct = false;
                 type = OUTPUT_HDMI_MULTI;
             }
-        } else if (devices & AUDIO_DEVICE_OUT_SPDIF) {
+        } else if ((devices & AUDIO_DEVICE_OUT_SPDIF) && (device_mode == SPDIF_PASSTHROUGH_MODE)) {
             out->channel_mask = config->channel_mask;
             out->config = pcm_config_direct;
             if ((config->sample_rate == 48000) ||
@@ -2020,7 +2040,11 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
             out->pcm_device = PCM_DEVICE;
             out->output_direct = true;
             type = OUTPUT_HDMI_MULTI;
-        }
+        } else {
+            out->config = pcm_config;
+            out->pcm_device = PCM_DEVICE;
+            type = OUTPUT_LOW_LATENCY;
+	}
     } else if (flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) {
         out->config = pcm_config_deep;
         out->pcm_device = PCM_DEVICE_DEEP;
@@ -2033,7 +2057,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
 
     ALOGD("out->config.rate = %d, out->config.channels = %d", out->config.rate, out->config.channels);
     direct_mode.output_mode = HW_PARAMS_FLAG_LPCM;
-    if ((type == OUTPUT_HDMI_MULTI) && (devices == AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+    if ((type == OUTPUT_HDMI_MULTI) && (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) && (device_mode == HDMI_BITSTREAM_MODE)) {
         direct_mode.output_mode = HW_PARAMS_FLAG_NLPCM;
         out->config.format = PCM_FORMAT_S24_LE;
         setChanSta(out->config.rate, out->config.channels);
